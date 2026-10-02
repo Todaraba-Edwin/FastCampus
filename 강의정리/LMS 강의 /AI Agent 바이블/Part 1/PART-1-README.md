@@ -1,4 +1,4 @@
-[← AI Agent 바이블](../AI Agent 바이블.md)
+[← AI Agent 바이블](../AI%20Agent%20바이블.md)
 
 # Part 1. AI 에이전트 기초 다지기
 
