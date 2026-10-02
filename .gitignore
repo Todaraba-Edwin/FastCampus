@@ -1,2 +1,5 @@
 .DS_Store
 /강의자료
+
+.env
+/.venv/
