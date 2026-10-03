@@ -203,6 +203,31 @@ workflow.add_edge("generate", END)    # 종료점
 - **개발/테스트**: InMemoryVectorStore (빠르고 간단)
 - **프로덕션/서비스**: Chroma (데이터 지속성 필요)
 
+> **⚠️ Chroma의 영구 저장 메커니즘 이해하기**
+
+**Chroma는 데이터를 디스크에 저장하므로, 명시적으로 삭제하지 않으면 계속 누적됩니다:**
+
+```python
+vectorstore = Chroma.from_documents(
+    documents=doc_splits,
+    collection_name="rag-chroma",
+    persist_directory="./chroma_data"  # ← 이 경로에 계속 저장됨
+)
+```
+
+- **첫 실행**: `./chroma_data` 디렉토리 생성, `rag-chroma` 컬렉션 저장
+- **반복 실행**: 같은 컬렉션명으로 실행 → 기존 데이터 유지/업데이트
+- **명시적 삭제 전까지**: 디스크에 계속 누적 (자동 정리 불가)
+
+**메모리 vs 디스크 비교:**
+
+| 항목 | InMemoryVectorStore | Chroma |
+|------|---|---|
+| **메모리 점유** | 프로세스 종료 시 해제 | 명시적 삭제까지 지속 |
+| **디스크 공간** | 사용 안 함 | 1 MB ~ 수 GB (누적) |
+| **정리 방법** | 자동 해제 | 수동 정리 필요 |
+| **주의사항** | 없음 | `rm -rf ./chroma_data` 필요 |
+
 > **문서 로딩 및 벡터 스토어 생성 과정**
 
 ```python
