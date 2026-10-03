@@ -766,7 +766,75 @@ docs_list = [
 
 #### 🎓 스터디 노트 및 질문
 
-> **@tool 데코레이터를 사용한 검색 도구 구현**
+> **@tool 데코레이터를 사용한 검색 도구 구현 - .run() 메서드의 의미**
+>
+> ```python
+> retriever_tool.run({"query": "deepseek ocr 모델"})
+> ```
+
+**🔍 JavaScript 개발자 관점의 혼동 해결:**
+
+| 관점 | 설명 |
+|------|------|
+| **처음 보기** | `retrieve` 함수를 선언했는데 왜 `()`가 아니라 `.run()` ? |
+| **실제 동작** | `@tool` 데코레이터가 함수를 **Tool 객체로 변환** → `.run()` 메서드 추가 |
+
+---
+
+**@tool 데코레이터의 동작:**
+
+```python
+# 1️⃣ 데코레이터 적용 전
+def retrieve(query: str) -> str:
+    docs = retriever.invoke(query)
+    return "\n\n".join([doc.page_content for doc in docs])
+
+# 2️⃣ @tool 데코레이터 적용
+@tool
+def retrieve(query: str) -> str:
+    docs = retriever.invoke(query)
+    return "\n\n".join([doc.page_content for doc in docs])
+
+# 3️⃣ 내부적으로는 이런 일이 일어남:
+# retrieve = Tool(
+#     name="retrieve",
+#     description="DeepSeek OCR 논문에서 관련 정보를 검색합니다.",
+#     func=retrieve_function,
+#     run=retrieve_function  ← .run() 메서드 추가됨
+# )
+
+retriever_tool = retrieve  # Tool 객체를 변수에 할당
+```
+
+**결과:**
+```python
+# retriever_tool은 더 이상 단순 함수가 아니라 Tool 객체
+retriever_tool.run({"query": "deepseek ocr 모델"})  # ← Tool 객체의 메서드
+```
+
+---
+
+**JavaScript와의 비교:**
+
+```javascript
+// JavaScript: 일반 함수 호출
+const retrieve = (query) => { ... }
+retrieve("deepseek ocr 모델")  // 직접 함수 호출
+
+// Python: 데코레이터로 변환된 Tool 객체
+@tool
+def retrieve(query: str) -> str:
+    ...
+
+retriever_tool.run({"query": "deepseek ocr 모델"})  # Tool 객체의 메서드 호출
+```
+
+**파이썬에서 `.run()` 호출이 가능한 이유:**
+- `@tool` 데코레이터가 함수를 **LangChain Tool 클래스의 인스턴스로 변환**
+- Tool 객체는 `.run()`, `.invoke()` 등의 메서드를 내장
+- JavaScript의 클래스 인스턴스의 메서드 호출과 동일한 개념
+
+---
 
 ```python
 from langchain.tools import tool
@@ -777,9 +845,21 @@ def retrieve(query: str) -> str:
     docs = retriever.invoke(query)
     return "\n\n".join([doc.page_content for doc in docs])
 
-retriever_tool = retrieve
+retriever_tool = retrieve  # Tool 객체
 print("✅ Retriever Tool 생성 완료")
+
+# 사용 예시
+result = retriever_tool.run({"query": "deepseek ocr 모델"})
+# 또는
+result = retriever_tool.invoke({"query": "deepseek ocr 모델"})
 ```
+
+**`.run()` vs `.invoke()` 차이:**
+
+| 메서드 | 사용 | 반환 |
+|--------|------|------|
+| `.run()` | 간단한 호출 | 문자열 |
+| `.invoke()` | 표준 LangChain 방식 | 더 상세한 결과 |
 
 **동작 원리:**
 
