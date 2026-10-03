@@ -668,11 +668,45 @@ for output in app.stream({"question": question}):
 
 #### 🎓 스터디 노트 및 질문
 
-> **# 문서 분할 및 벡터 스토어 생성 코드 분석**
+> **# 문서 분할 및 벡터 스토어 생성 코드 분석 - web_docs는 어디서?**
 >
 > ```python
 > docs_list = [item for sublist in web_docs for item in sublist]
 > ```
+
+**⚠️ 중요한 질문: web_docs는 어디서 정의되었나?**
+
+노트북을 보면:
+```python
+# 셀 1: PDF 로드
+docs = [pdf_loader.load()]  # ← docs 정의됨
+
+# 셀 2: 바로 다음에...
+docs_list = [item for sublist in web_docs for item in sublist]  # ← web_docs는?
+```
+
+**실제 상황:**
+- `web_docs` **변수가 노트북에 명시적으로 선언되지 않음**
+- 이전 셀에서 정의되어야 하는데, 노트북 구조상 보이지 않음
+- **가능한 원인:**
+  1. 웹 크롤링 코드가 있었던 셀이 생략됨
+  2. 이전 LangChain RAG 노트북(CH03.02.01)에서 가져온 변수
+  3. 실습할 때 직접 정의해야 하는 부분
+
+**학습 포인트:**
+실제 실습 시, `web_docs`는 다음과 같이 정의되어야 합니다:
+```python
+# 웹 문서 로딩 (선행 필요)
+from langchain_community.document_loaders import WebBaseLoader
+
+urls = ["https://example.com", "https://another.com"]  # 예시
+web_docs = [WebBaseLoader(url).load() for url in urls]
+
+# 이제 docs_list 생성 가능
+docs_list = [item for sublist in web_docs for item in sublist]
+```
+
+---
 
 **이것은 "리스트 컴프리헨션(List Comprehension)"입니다:**
 
@@ -691,9 +725,17 @@ for sublist in web_docs:           # web_docs는 리스트의 리스트
 
 **핵심:**
 - **할당(assignment)**: `docs_list =` (새로운 변수 생성)
+  - 빈 리스트가 아님 - 리스트 컴프리헨션으로 채워짐
+  - **선행 조건**: `web_docs`가 먼저 정의되어야 함
+  
 - **리스트 컴프리헨션**: `[item for ...]` (리스트를 간결하게 생성)
-- **web_docs**: 외부에서 정의된 변수 (노트북의 이전 셀에서)
+  
+- **web_docs**: **외부에서 정의된 변수**
+  - **필수 조건**: 실행 전에 정의되어야 함
+  - 정의되지 않으면 `NameError` 발생
+  
 - **sublist**: 루프 내에서만 존재하는 임시 변수
+  - 루프 바깥에서는 접근 불가
 
 **실제 예시:**
 ```python
