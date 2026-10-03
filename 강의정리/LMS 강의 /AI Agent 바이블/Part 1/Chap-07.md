@@ -164,25 +164,124 @@ workflow.add_edge("generate", END)    # 종료점
 
 ## 둘째, 실습-02 LangGraph로 구현하는 Basic RAG
 
-### (1) 환경 설정 및 벡터 스토어
+### (1) 환경 설정
 
 #### 📌 학습 목표
-- LangGraph와 필수 패키지 설치
-- 벡터 스토어 생성 및 리트리버 설정
+- LangGraph 및 필수 패키지 설치 및 환경 구성
+- OpenAI API 키 설정 및 연동
 
 #### 🎓 스터디 노트 및 질문
 
 > 여기에 학습하며 생긴 질문들을 기록하세요.
 
-### (2) GraphState 정의
+---
+
+### (2) 문서 로딩 및 벡터 스토어 생성
 
 #### 📌 학습 목표
-- TypedDict를 사용한 상태 객체 정의
-- 상태 필드의 역할 이해
+- PyPDFLoader를 사용한 PDF 문서 로드
+- RecursiveCharacterTextSplitter와 Chroma를 활용한 벡터 스토어 구축
 
 #### 🎓 스터디 노트 및 질문
 
-> **GraphState 구조**
+> **문서 로딩 및 벡터 스토어 생성 과정**
+
+```python
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.vectorstores import Chroma
+from langchain_openai import OpenAIEmbeddings
+
+# 임베딩 모델 설정
+embeddings = OpenAIEmbeddings()
+
+# PDF 파일 경로
+file_path = "docs/DeepSeek_OCR_paper.pdf"
+
+# PDF 로드
+loader = PyPDFLoader(file_path)
+docs = loader.load()
+print(f"📄 로드된 문서 수: {len(docs)} 페이지")
+
+# 문서 분할
+text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+    chunk_size=500, 
+    chunk_overlap=50
+)
+doc_splits = text_splitter.split_documents(docs)
+print(f"총 {len(doc_splits)}개의 문서 청크 생성됨")
+
+# 벡터 스토어 생성
+vectorstore = Chroma.from_documents(
+    documents=doc_splits,
+    collection_name="rag-chroma",
+    embedding=embeddings,
+)
+
+# 리트리버 생성
+retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+```
+
+**핵심 단계:**
+
+1. **PDF 로딩**: PyPDFLoader로 문서 페이지 로드
+2. **텍스트 분할**: 청크 크기 500, 오버랩 50으로 재귀적 분할
+3. **임베딩**: OpenAIEmbeddings로 벡터 변환
+4. **벡터 스토어**: Chroma에 저장하여 유사도 검색 가능
+
+---
+
+### (3) RAG 체인 설정
+
+#### 📌 학습 목표
+- ChatOpenAI 모델 초기화 및 설정
+- 프롬프트 템플릿 정의 및 RAG 파이프라인 구성
+
+#### 🎓 스터디 노트 및 질문
+
+> **RAG 체인의 구조**
+
+```python
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_openai import ChatOpenAI
+
+# LLM 모델 설정
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+# RAG 프롬프트 템플릿
+prompt = ChatPromptTemplate.from_messages([
+    ("system", """You are an assistant for question-answering tasks. 
+    Use the following pieces of retrieved context to answer the question. 
+    If you don't know the answer, just say that you don't know. 
+    Use three sentences maximum and keep the answer concise. Answer in Korean"""),
+    ("human", "Question: {question}\n\nContext: {context}\n\nAnswer:")
+])
+
+# 문서 포맷팅 함수
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
+
+# RAG 체인 생성
+rag_chain = prompt | llm | StrOutputParser()
+```
+
+**파이프라인 구성:**
+- **prompt**: 시스템 메시지 + 사용자 질문 포맷팅
+- **llm**: ChatOpenAI 모델 호출
+- **StrOutputParser()**: 출력을 문자열로 파싱
+
+---
+
+### (4) LangGraph 상태 정의
+
+#### 📌 학습 목표
+- TypedDict를 사용한 GraphState 정의
+- 그래프에서 사용할 상태 필드 설계
+
+#### 🎓 스터디 노트 및 질문
+
+> **GraphState 정의의 중요성**
 
 ```python
 from typing import TypedDict, List
@@ -190,46 +289,35 @@ from langchain_core.documents import Document
 
 class GraphState(TypedDict):
     """RAG 그래프의 상태를 정의"""
-    question: str           # 사용자 질문
+    question: str              # 사용자 질문
     documents: List[Document]  # 검색된 문서 리스트
-    generation: str         # 생성된 답변
+    generation: str            # 생성된 답변
 ```
 
-**각 필드의 역할:**
+**각 필드의 역할과 데이터 흐름:**
 
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `question` | `str` | 사용자로부터 입력받은 질문 |
-| `documents` | `List[Document]` | 리트리버에 의해 검색된 관련 문서들 |
-| `generation` | `str` | LLM이 생성한 최종 답변 |
+| 필드 | 타입 | 역할 | 초기값 | 업데이트 노드 |
+|------|------|------|--------|---|
+| `question` | `str` | 사용자의 입력 질문 저장 | invoke() 입력값 | - |
+| `documents` | `List[Document]` | 검색된 관련 문서 저장 | [] | retrieve 노드 |
+| `generation` | `str` | 생성된 최종 답변 저장 | "" | generate 노드 |
 
-**TypedDict의 장점:**
-- 상태의 구조를 명확하게 정의
-- IDE에서 타입 체킹 및 자동완성 지원
-- 코드 가독성 향상
-- 런타임 타입 검증 가능
-
-**상태 업데이트 방식:**
-
-```python
-# 노드에서 반환된 딕셔너리는 기존 상태와 병합됨
-def retrieve(state: GraphState) -> GraphState:
-    return {"documents": docs}  # generation 필드는 기존값 유지
-
-# 결과: {"question": "...", "documents": docs, "generation": ""}
-```
+**TypedDict 사용 이유:**
+- 상태의 구조를 명시적으로 정의하여 타입 안정성 확보
+- 각 노드에서 상태의 필드를 명확히 알 수 있음
+- IDE의 자동완성 및 타입 체킹 가능
 
 ---
 
-### (3) 노드 함수 구현 (Retrieve, Generate)
+### (5) 그래프 노드 함수 정의
 
 #### 📌 학습 목표
-- Retrieve 노드 구현: 질문 기반 문서 검색
-- Generate 노드 구현: 검색 결과 기반 답변 생성
+- retrieve 노드: 질문 기반 문서 검색 구현
+- generate 노드: 검색 결과를 바탕으로 답변 생성 구현
 
 #### 🎓 스터디 노트 및 질문
 
-> **Retrieve 노드 구현**
+> **retrieve 노드 - 문서 검색**
 
 ```python
 def retrieve(state: GraphState) -> GraphState:
@@ -237,18 +325,22 @@ def retrieve(state: GraphState) -> GraphState:
     print("---RETRIEVE---")
     question = state["question"]
     
-    # 리트리버를 사용해 관련 문서 검색
+    # 리트리버를 사용해 관련 문서 검색 (상위 k개)
     documents = retriever.invoke(question)
     
-    return {"question": question, "documents": documents, "generation": ""}
+    return {
+        "question": question, 
+        "documents": documents, 
+        "generation": ""
+    }
 ```
 
-**역할:**
-1. 사용자 질문 추출
-2. 벡터 스토어에서 유사한 문서 검색 (top-k)
-3. 검색된 문서를 상태에 저장
+**동작 과정:**
+1. 입력 상태에서 `question` 필드 추출
+2. 리트리버(벡터 스토어)에서 유사한 문서 상위 k개 검색
+3. 검색 결과를 `documents` 필드에 저장하여 반환
 
-**Generate 노드 구현**
+**generate 노드 - 답변 생성**
 
 ```python
 def generate(state: GraphState) -> GraphState:
@@ -257,12 +349,12 @@ def generate(state: GraphState) -> GraphState:
     question = state["question"]
     documents = state["documents"]
     
-    # 문서를 텍스트로 포맷팅
+    # 검색된 문서들을 문자열로 포맷팅
     docs_txt = format_docs(documents)
     
-    # RAG 체인을 사용해 답변 생성
+    # RAG 체인에 컨텍스트와 질문 전달
     generation = rag_chain.invoke({
-        "context": docs_txt,
+        "context": docs_txt, 
         "question": question
     })
     
@@ -273,29 +365,23 @@ def generate(state: GraphState) -> GraphState:
     }
 ```
 
-**역할:**
-1. 검색된 문서와 질문을 컨텍스트로 준비
-2. LLM에 프롬프트와 함께 전달
-3. 생성된 답변을 상태에 저장
+**동작 과정:**
+1. 입력 상태에서 `question`과 `documents` 추출
+2. 문서들을 포맷팅하여 LLM 프롬프트용 컨텍스트 준비
+3. RAG 체인 호출: 컨텍스트 + 질문 → LLM 답변
+4. 생성된 답변을 `generation` 필드에 저장하여 반환
 
 ---
 
-### (4) 그래프 생성 및 컴파일
+### (6) 그래프 생성 및 컴파일
 
 #### 📌 학습 목표
 - StateGraph를 사용한 워크플로우 구성
-- 노드와 엣지 연결
-- 그래프 컴파일
+- 노드 추가 및 엣지 연결을 통한 실행 흐름 정의
 
 #### 🎓 스터디 노트 및 질문
 
-> **Basic RAG 그래프 구조**
-
-```
-START → retrieve → generate → END
-```
-
-**구현 코드:**
+> **Basic RAG 그래프 구조: START → retrieve → generate → END**
 
 ```python
 from langgraph.graph import StateGraph, START, END
@@ -307,106 +393,131 @@ workflow = StateGraph(GraphState)
 workflow.add_node("retrieve", retrieve)
 workflow.add_node("generate", generate)
 
-# 엣지 연결
-workflow.add_edge(START, "retrieve")
-workflow.add_edge("retrieve", "generate")
-workflow.add_edge("generate", END)
+# 엣지 연결 (노드 간 실행 순서 정의)
+workflow.add_edge(START, "retrieve")      # 시작 → 검색
+workflow.add_edge("retrieve", "generate")  # 검색 → 생성
+workflow.add_edge("generate", END)         # 생성 → 종료
 
 # 그래프 컴파일
 app = workflow.compile()
+print("RAG 그래프가 성공적으로 컴파일되었습니다.")
 ```
 
 **각 단계의 의미:**
 
-1. **StateGraph 생성**: GraphState를 상태로 사용하는 그래프 생성
-2. **노드 추가**: retrieve, generate 함수를 노드로 등록
-3. **엣지 연결**: 노드 간의 실행 순서 정의
+1. **StateGraph 초기화**: GraphState를 상태로 사용하는 그래프 생성
+2. **노드 추가**: retrieve와 generate 함수를 그래프에 등록
+3. **엣지 정의**: 노드 간의 연결 순서 명시 (START → retrieve → generate → END)
 4. **컴파일**: 그래프를 실행 가능한 형태로 변환
 
 ---
 
-### (5) 그래프 시각화 및 실행
+### (7) 그래프 시각화
 
 #### 📌 학습 목표
-- 그래프 구조를 시각화하여 워크플로우 확인
-- invoke와 stream 실행 방식 이해
+- get_graph().draw_mermaid_png()를 사용한 그래프 시각화
+- 워크플로우 구조를 다이어그램으로 확인
 
 #### 🎓 스터디 노트 및 질문
 
-> **그래프 시각화**
+> **그래프 시각화 방법**
 
 ```python
 from IPython.display import Image, display
 
-# Mermaid 다이어그램으로 시각화
-display(Image(app.get_graph().draw_mermaid_png()))
+try:
+    display(Image(app.get_graph().draw_mermaid_png()))
+except Exception as e:
+    print(f"시각화 오류: {e}")
+    print("그래프 구조: START -> retrieve -> generate -> END")
 ```
 
-**출력 예시:**
+**시각화의 의미:**
+- Mermaid 다이어그램으로 그래프 구조 표현
+- 각 노드와 엣지의 관계를 시각적으로 이해
+- 복잡한 그래프 구조에서 실행 흐름 파악 용이
+
+**기본 RAG 그래프의 시각적 구조:**
 ```
-┌─────────────┐
-│   START     │
-└──────┬──────┘
-       │
-       ▼
+┌─────────┐
+│ START   │
+└────┬────┘
+     │
+     ▼
 ┌─────────────┐
 │  retrieve   │
-└──────┬──────┘
-       │
-       ▼
+└────┬────────┘
+     │
+     ▼
 ┌─────────────┐
 │  generate   │
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│    END      │
-└─────────────┘
+└────┬────────┘
+     │
+     ▼
+┌─────────┐
+│   END   │
+└─────────┘
 ```
 
-> **두 가지 실행 방식**
+---
 
-**1. invoke() - 동기 실행**
+### (8) RAG 실행 테스트
+
+#### 📌 학습 목표
+- invoke() 동기 실행: 전체 결과를 한 번에 반환받기
+- stream() 스트리밍 실행: 각 노드 실행 과정을 순차적으로 확인하기
+
+#### 🎓 스터디 노트 및 질문
+
+> **invoke() - 동기 실행 방식**
 
 ```python
-result = app.invoke({"question": "Deepseek OCR이 뭐야?"})
+# RAG 그래프 실행
+question = "Deepseek OCR이 뭐야?"
+result = app.invoke({"question": question})
 
+print("=" * 50)
 print(f"질문: {result['question']}")
-print(f"답변: {result['generation']}")
-print(f"참조 문서 수: {len(result['documents'])}")
+print("=" * 50)
+print(f"\n답변:\n{result['generation']}")
+print("=" * 50)
+print(f"\n참조 문서 수: {len(result['documents'])}")
 ```
 
 **특징:**
 - 전체 워크플로우가 완료될 때까지 대기
-- 최종 결과만 한 번에 반환
-- 동기식이므로 blocking 발생
+- 최종 결과 상태(question, documents, generation)를 한 번에 반환
+- 결과에서 원하는 필드(generation)에 접근 가능
 
-**2. stream() - 스트리밍 실행**
+**stream() - 스트리밍 실행 방식**
 
 ```python
-for output in app.stream({"question": "Deepseek OCR이 뭐야?"}):
+# 스트리밍 방식으로 실행
+question = "Omnidoc bench 결과는 어때?"
+print(f"질문: {question}\n")
+print("=" * 50)
+
+for output in app.stream({"question": question}):
     for node_name, value in output.items():
-        print(f"[{node_name}] 노드 실행 완료")
-        if node_name == "generate":
-            print(f"답변: {value['generation']}")
+        print(f"\n[{node_name}] 노드 실행 완료")
+        if node_name == "generate" and "generation" in value:
+            print(f"\n답변:\n{value['generation']}")
 ```
 
 **특징:**
-- 각 노드 실행 결과를 순차적으로 반환
+- 각 노드 실행 결과를 순차적으로 반환 (먼저 retrieve 결과, 그 다음 generate 결과)
 - 중간 과정을 실시간으로 확인 가능
-- 장시간 작업에서 진행 상황 추적 용이
+- 디버깅 및 진행 상황 추적에 유용
+- 각 노드의 입출력을 명확하게 관찰 가능
 
----
+**invoke vs stream 비교:**
 
-### (6) 실습: 질의응답 테스트
-
-#### 📌 학습 목표
-- 완성된 Basic RAG 그래프로 질의응답 테스트
-- 다양한 쿼리에 대한 성능 평가
-
-#### 🎓 스터디 노트 및 질문
-
-> 여기에 학습하며 생긴 질문들을 기록하세요.
+| 항목 | `invoke()` | `stream()` |
+|------|-----------|-----------|
+| **대기 방식** | 전체 완료까지 대기 | 각 노드 후 반환 |
+| **반환 방식** | 최종 상태 한 번 | 각 노드마다 여러 번 |
+| **사용 시기** | 최종 결과만 필요 | 진행 과정 확인 필요 |
+| **응답 속도 체감** | 느림 | 빠름 (진행 상황 보임) |
 
 ---
 
@@ -415,45 +526,12 @@ for output in app.stream({"question": "Deepseek OCR이 뭐야?"}):
 ### (1) Agentic RAG 개요
 
 #### 📌 학습 목표
-- Agentic RAG의 개념 이해
-- Basic RAG와의 차이점 파악
+- LLM 에이전트가 검색 여부를 자율적으로 판단하는 고급 RAG 이해
+- Basic RAG와의 구조적 차이점 파악
 
 #### 🎓 스터디 노트 및 질문
 
-> **Agentic RAG란?**
-
-**정의**: LLM 에이전트가 검색 여부와 방법을 **자율적으로 판단**하는 고급 RAG 시스템
-
-**Basic RAG vs Agentic RAG:**
-
-| 항목 | **Basic RAG** | **Agentic RAG** |
-|------|---|---|
-| **검색 결정** | 항상 검색 | LLM이 판단 |
-| **검색 여부** | 고정된 흐름 | 동적 결정 |
-| **문서 평가** | 없음 | 관련성 평가 |
-| **질문 개선** | 없음 | 동적 재작성 |
-| **유연성** | 낮음 | 높음 |
-| **사용 사례** | 간단한 QA | 복잡한 에이전트 작업 |
-
-**Agentic RAG 워크플로우:**
-
-```
-START 
-  ↓
-generate_query_or_respond (LLM이 검색 필요 판단)
-  ├─ 검색 불필요 → END (직접 응답)
-  └─ 검색 필요 → retrieve (문서 검색)
-       ↓
-    grade_documents (관련성 평가)
-       ├─ 관련 있음 → generate_answer → END
-       └─ 관련 없음 → rewrite_question → generate_query_or_respond (재시도)
-```
-
-**핵심 특징:**
-- **자율적 의사결정**: LLM이 tool 호출 필요성 판단
-- **관련성 평가**: 검색 결과가 질문과 관련있는지 평가
-- **질문 개선**: 관련 없는 검색 결과 시 질문 재작성
-- **루프 구현**: 만족스러운 결과까지 재시도
+> 여기에 학습하며 생긴 질문들을 기록하세요.
 
 ---
 
@@ -465,7 +543,7 @@ generate_query_or_respond (LLM이 검색 필요 판단)
 
 #### 🎓 스터디 노트 및 질문
 
-> **@tool 데코레이터 사용**
+> **@tool 데코레이터를 사용한 검색 도구 구현**
 
 ```python
 from langchain.tools import tool
@@ -477,68 +555,73 @@ def retrieve(query: str) -> str:
     return "\n\n".join([doc.page_content for doc in docs])
 
 retriever_tool = retrieve
+print("✅ Retriever Tool 생성 완료")
 ```
 
 **동작 원리:**
-1. `@tool` 데코레이터가 함수를 LangChain Tool 객체로 변환
-2. 함수명이 tool의 이름이 됨 (retrieve)
-3. 함수 docstring이 tool의 설명이 됨
-4. 함수 인자(query)가 tool의 입력 파라미터가 됨
 
-**tool 객체의 정보:**
+1. **@tool 데코레이터**: 일반 함수를 LangChain Tool 객체로 변환
+2. **함수명** → Tool 이름: `retrieve`
+3. **Docstring** → Tool 설명: "DeepSeek OCR 논문에서..."
+4. **함수 인자** → Tool 파라미터: `query: str`
+
+**Tool 객체의 정보 확인:**
 
 ```python
-print(retriever_tool.name)        # "retrieve"
-print(retriever_tool.description) # "DeepSeek OCR 논문에서..."
-print(retriever_tool.args)        # {"query": {"type": "string"}}
+retriever_tool.name           # "retrieve"
+retriever_tool.description    # "DeepSeek OCR 논문에서..."
+retriever_tool.args           # {"query": {"type": "string"}}
 ```
 
 ---
 
-### (3) 조건부 라우팅 (Conditional Routing)
+### (3) 쿼리 생성 또는 응답
 
 #### 📌 학습 목표
-- tools_condition을 사용한 동적 라우팅
-- 조건부 엣지의 구현
+- LLM이 검색 필요 여부를 자동으로 판단하는 노드 구현
+- bind_tools()를 사용한 도구 바인딩
 
 #### 🎓 스터디 노트 및 질문
 
-> **Tool 호출 여부에 따른 라우팅**
+> **generate_query_or_respond 노드 - Tool 호출 여부 판단**
 
 ```python
-from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.graph import MessagesState
 
-# 노드 추가
-workflow.add_node("generate_query_or_respond", generate_query_or_respond)
-workflow.add_node("retrieve", ToolNode([retriever_tool]))
+response_model = ChatOpenAI("gpt-4o-mini", temperature=0)
 
-# 조건부 엣지: LLM이 tool 호출 여부 결정
-workflow.add_conditional_edges(
-    "generate_query_or_respond",
-    tools_condition,
-    {
-        "tools": "retrieve",  # Tool 호출 시 → retrieve 노드로
-        END: END              # Tool 호출 안 함 → 종료
-    }
-)
-```
-
-**tools_condition의 역할:**
-- LLM 응답을 분석하여 tool_calls 존재 여부 확인
-- tool_calls가 있으면 "tools" 반환
-- tool_calls가 없으면 END 반환
-
-**generate_query_or_respond 구현:**
-
-```python
 def generate_query_or_respond(state: MessagesState):
     """LLM이 검색 여부를 판단하여 tool 호출 또는 직접 응답"""
     response = (
         response_model
-        .bind_tools([retriever_tool])  # tool 바인딩
+        .bind_tools([retriever_tool])  # retriever tool 바인딩
         .invoke(state["messages"])
     )
     return {"messages": [response]}
+
+print("✅ generate_query_or_respond 노드 정의 완료")
+```
+
+**동작 원리:**
+
+1. **bind_tools()**: LLM에 사용 가능한 도구 바인딩
+2. **LLM 판단**: 사용자 메시지를 보고 retriever 호출 필요성 판단
+3. **결과**:
+   - 검색 필요 → `tool_calls` 포함된 응답 생성
+   - 검색 불필요 → 직접 텍스트 응답 생성
+
+**테스트 예시:**
+
+```python
+# 검색 불필요 (일반 인사)
+test_input = {"messages": [{"role": "user", "content": "hello!"}]}
+generate_query_or_respond(test_input)["messages"][-1].pretty_print()
+# → "Hello! How can I assist you today?"
+
+# 검색 필요 (주제별 질문)
+test_input = {"messages": [{"role": "user", "content": "DeepEncoder란?"}]}
+generate_query_or_respond(test_input)["messages"][-1].pretty_print()
+# → Tool Calls: retrieve (call_id), Args: {query: DeepEncoder}
 ```
 
 ---
@@ -546,137 +629,250 @@ def generate_query_or_respond(state: MessagesState):
 ### (4) 문서 관련성 평가
 
 #### 📌 학습 목표
-- 검색된 문서의 관련성 판단
-- 조건에 따른 노드 분기 구현
+- 검색된 문서가 질문과 관련있는지 평가하는 조건부 엣지 구현
+- Pydantic BaseModel을 사용한 구조화된 출력
 
 #### 🎓 스터디 노트 및 질문
 
-> **문서 관련성 평가 (Grading)**
+> **grade_documents - 문서 관련성 평가 노드**
 
 ```python
 from pydantic import BaseModel, Field
 from typing import Literal
 
+GRADE_PROMPT = (
+    "You are a grader assessing relevance of a retrieved document to a user question.\n"
+    "Here is the retrieved document:\n\n{context}\n\n"
+    "Here is the user question: {question}\n"
+    "If the document contains keyword(s) or semantic meaning related to the user question, "
+    "grade it as relevant.\n"
+    "Give a binary score 'yes' or 'no' to indicate whether the document is relevant."
+)
+
 class GradeDocuments(BaseModel):
     """문서 관련성 평가를 위한 이진 점수"""
     binary_score: str = Field(description="Relevance score: 'yes' or 'no'")
 
+grader_model = ChatOpenAI("gpt-4o-mini", temperature=0)
+
 def grade_documents(state: MessagesState) -> Literal["generate_answer", "rewrite_question"]:
     """검색된 문서의 관련성을 평가"""
-    question = state["messages"][0].content
-    context = state["messages"][-1].content  # Tool의 출력
+    question = state["messages"][0].content       # 사용자 질문
+    context = state["messages"][-1].content       # 검색된 문서 내용
     
-    prompt = f"""You are a grader assessing relevance of a retrieved document to a user question.
-    Document: {context}
-    Question: {question}
-    If the document is relevant, score 'yes'; otherwise 'no'."""
-    
+    prompt = GRADE_PROMPT.format(question=question, context=context)
     response = grader_model.with_structured_output(GradeDocuments).invoke(
         [{"role": "user", "content": prompt}]
     )
     
     if response.binary_score == "yes":
+        print("---GRADE: 관련 있음---")
         return "generate_answer"
     else:
+        print("---GRADE: 관련 없음 → 질문 재작성---")
         return "rewrite_question"
+
+print("✅ grade_documents 조건부 엣지 정의 완료")
 ```
 
-**동작 방식:**
-1. LLM이 문서와 질문을 분석
-2. 관련성을 이진 점수로 반환 (yes/no)
-3. 점수에 따라 다음 노드 결정
-4. yes → 답변 생성
-5. no → 질문 재작성
+**동작 원리:**
+
+1. **질문 추출**: `messages[0]` → 사용자의 원본 질문
+2. **문서 추출**: `messages[-1]` → retriever tool의 검색 결과
+3. **LLM 평가**: 문서가 질문과 관련있는지 yes/no로 판단
+4. **조건부 분기**:
+   - `yes` → generate_answer 노드로 진행 (답변 생성)
+   - `no` → rewrite_question 노드로 진행 (질문 재작성)
 
 ---
 
-### (5) Agentic RAG 그래프 조립
+### (5) 질문 재작성 및 답변 생성
 
 #### 📌 학습 목표
-- 모든 노드와 엣지를 연결한 완전한 Agentic RAG 그래프 구성
+- 관련 없는 검색 결과 시 질문을 개선하는 rewrite_question 노드 구현
+- 최종 답변을 생성하는 generate_answer 노드 구현
+
+#### 🎓 스터디 노트 및 질문
+
+> **rewrite_question - 질문 개선 노드**
+
+```python
+from langchain_core.messages import HumanMessage
+
+REWRITE_PROMPT = (
+    "Look at the input and try to reason about the underlying semantic intent / meaning.\n"
+    "Here is the initial question:\n---\n{question}\n---\n"
+    "Formulate an improved question:"
+)
+
+def rewrite_question(state: MessagesState):
+    """질문을 재작성"""
+    print("---REWRITE QUESTION---")
+    question = state["messages"][0].content
+    prompt = REWRITE_PROMPT.format(question=question)
+    response = response_model.invoke([{"role": "user", "content": prompt}])
+    return {"messages": [HumanMessage(content=response.content)]}
+
+print("✅ rewrite_question 노드 정의 완료")
+```
+
+**동작 원리:**
+- 사용자의 원본 질문을 의미 기반으로 분석
+- LLM이 더 명확하고 구체적인 질문으로 개선
+- 개선된 질문을 `messages`에 추가하여 다시 검색하도록 유도
+
+**generate_answer - 최종 답변 생성 노드**
+
+```python
+GENERATE_PROMPT = (
+    "You are an assistant for question-answering tasks. "
+    "Use the following pieces of retrieved context to answer the question. "
+    "If you don't know the answer, just say that you don't know. "
+    "Use three sentences maximum and keep the answer concise.\n"
+    "Question: {question}\nContext: {context}"
+)
+
+def generate_answer(state: MessagesState):
+    """최종 답변 생성"""
+    print("---GENERATE ANSWER---")
+    question = state["messages"][0].content
+    context = state["messages"][-1].content
+    prompt = GENERATE_PROMPT.format(question=question, context=context)
+    response = response_model.invoke([{"role": "user", "content": prompt}])
+    return {"messages": [response]}
+
+print("✅ generate_answer 노드 정의 완료")
+```
+
+**동작 원리:**
+- 원본 질문 + 검색된 문서(관련성 평가를 통과한)로 최종 답변 생성
+- 3문장 이내의 간결한 답변 작성
+- 모르는 경우 "모른다"고 명시
+
+---
+
+### (6) Agentic RAG 그래프 조립
+
+#### 📌 학습 목표
+- 모든 노드와 조건부 엣지를 연결하여 완전한 Agentic RAG 그래프 구성
 - 루프와 분기를 포함한 복잡한 워크플로우 구현
 
 #### 🎓 스터디 노트 및 질문
 
-> **Agentic RAG 그래프 구성**
+> **Agentic RAG 그래프 구조**
+
+```
+START
+  ↓
+generate_query_or_respond (검색 필요 판단)
+  ├─ Yes (tool_calls) → retrieve (문서 검색)
+  │                        ↓
+  │                   grade_documents (관련성 평가)
+  │                        ├─ Yes → generate_answer → END
+  │                        └─ No → rewrite_question → (루프) generate_query_or_respond
+  └─ No → END (직접 응답)
+```
+
+**그래프 생성 코드:**
 
 ```python
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
 
-# 그래프 생성
-workflow = StateGraph(MessagesState)
+# Agentic RAG 그래프 생성
+agentic_workflow = StateGraph(MessagesState)
 
 # 노드 추가
-workflow.add_node("generate_query_or_respond", generate_query_or_respond)
-workflow.add_node("retrieve", ToolNode([retriever_tool]))
-workflow.add_node("rewrite_question", rewrite_question)
-workflow.add_node("generate_answer", generate_answer)
+agentic_workflow.add_node("generate_query_or_respond", generate_query_or_respond)
+agentic_workflow.add_node("retrieve", ToolNode([retriever_tool]))
+agentic_workflow.add_node("rewrite_question", rewrite_question)
+agentic_workflow.add_node("generate_answer", generate_answer)
 
 # 시작 엣지
-workflow.add_edge(START, "generate_query_or_respond")
+agentic_workflow.add_edge(START, "generate_query_or_respond")
 
-# 조건부 엣지: Tool 호출 여부 판단
-workflow.add_conditional_edges(
+# 조건부 엣지 1: Tool 호출 여부 판단
+agentic_workflow.add_conditional_edges(
     "generate_query_or_respond",
-    tools_condition,
-    {"tools": "retrieve", END: END}
+    tools_condition,  # LLM 응답에서 tool_calls 존재 여부 확인
+    {"tools": "retrieve", END: END}  # tool_calls 있으면 retrieve, 없으면 END
 )
 
-# 조건부 엣지: 문서 관련성 평가
-workflow.add_conditional_edges("retrieve", grade_documents)
+# 조건부 엣지 2: 문서 관련성 평가
+agentic_workflow.add_conditional_edges(
+    "retrieve", 
+    grade_documents  # "generate_answer" or "rewrite_question"
+)
 
 # 일반 엣지
-workflow.add_edge("generate_answer", END)
-workflow.add_edge("rewrite_question", "generate_query_or_respond")
+agentic_workflow.add_edge("generate_answer", END)
+agentic_workflow.add_edge("rewrite_question", "generate_query_or_respond")  # 루프
 
 # 컴파일
-agentic_graph = workflow.compile()
+agentic_graph = agentic_workflow.compile()
+print("✅ Agentic RAG 그래프 컴파일 완료!")
 ```
 
 **그래프 구조 분석:**
 
-| 노드 | 입력 | 출력 | 다음 노드 |
-|------|------|------|----------|
-| generate_query_or_respond | 메시지 | Tool 호출 여부 | retrieve / END |
-| retrieve | Tool 호출 | 문서 내용 | grade_documents |
-| grade_documents | 문서 + 질문 | 관련성 판단 | generate_answer / rewrite_question |
-| generate_answer | 문서 + 질문 | 답변 | END |
-| rewrite_question | 질문 | 개선된 질문 | generate_query_or_respond |
+| 노드 | 역할 | 입력 | 출력 | 조건부 분기 |
+|------|------|------|------|-----------|
+| generate_query_or_respond | 검색 필요 여부 판단 | 메시지 리스트 | AI 응답 or Tool Call | tools_condition |
+| retrieve | 문서 검색 실행 | Tool Call | 검색된 문서 | 없음 |
+| grade_documents | 문서 관련성 평가 | 질문 + 문서 | yes/no | 자체 함수 |
+| generate_answer | 최종 답변 생성 | 질문 + 문서 | 최종 답변 | 없음 |
+| rewrite_question | 질문 개선 | 원본 질문 | 개선된 질문 | 없음 |
 
 ---
 
-### (6) 실습: 동적 의사결정 테스트
+### (7) Agentic RAG 실행
 
 #### 📌 학습 목표
-- Agentic RAG의 동적 의사결정 과정 확인
-- 다양한 쿼리에서의 에이전트 동작 이해
+- stream() 메서드로 Agentic RAG의 동적 의사결정 과정 확인
+- 다양한 쿼리 타입에서의 에이전트 동작 추적
 
 #### 🎓 스터디 노트 및 질문
 
-> **Agentic RAG 실행 및 분석**
-
-**테스트 1: 검색이 필요한 질문**
+> **Agentic RAG 실행 - 검색이 필요한 질문**
 
 ```python
+# 테스트 1: 전문 용어 질문 (검색 필요)
 for chunk in agentic_graph.stream(
     {"messages": [{"role": "user", "content": "DeepSeek OCR이 뭐야?"}]}
 ):
     for node, update in chunk.items():
-        print(f"🔄 Update from node: {node}")
+        print(f"\n🔄 Update from node: {node}")
         update["messages"][-1].pretty_print()
 ```
 
-**예상 흐름:**
-1. generate_query_or_respond: "검색 필요" 판단 → retrieve tool 호출
-2. retrieve: 문서 검색
-3. grade_documents: 문서 관련성 평가 ("yes" 반환)
-4. generate_answer: 최종 답변 생성
-5. END
+**예상 실행 흐름:**
 
-**테스트 2: 검색이 불필요한 질문**
+1. **generate_query_or_respond**: 
+   - 입력: "DeepSeek OCR이 뭐야?"
+   - 판단: 검색 필요
+   - 출력: Tool Call (retrieve, query="DeepSeek OCR")
+
+2. **retrieve**:
+   - 입력: Tool Call (query="DeepSeek OCR")
+   - 처리: 벡터 스토어에서 관련 문서 검색
+   - 출력: 검색된 문서 텍스트
+
+3. **grade_documents**:
+   - 입력: 질문 + 검색된 문서
+   - 판단: "yes" (관련성 높음)
+   - 출력: "generate_answer" 선택
+
+4. **generate_answer**:
+   - 입력: 질문 + 검색된 문서
+   - 처리: LLM으로 최종 답변 생성
+   - 출력: "DeepSeek OCR은 긴 문서의 텍스트를 고해상도 입력에서..."
+
+5. **END**: 그래프 종료
+
+**Agentic RAG 실행 - 검색이 불필요한 질문**
 
 ```python
+# 테스트 2: 일반 인사 (검색 불필요)
 for chunk in agentic_graph.stream(
     {"messages": [{"role": "user", "content": "안녕하세요!"}]}
 ):
@@ -684,14 +880,31 @@ for chunk in agentic_graph.stream(
         print(f"🔄 Update from node: {node}")
 ```
 
-**예상 흐름:**
-1. generate_query_or_respond: "검색 불필요" 판단 → 직접 응답
-2. END (검색 없이 종료)
+**예상 실행 흐름:**
 
-**stream() 메서드의 장점:**
-- 각 노드의 실행 과정을 실시간으로 관찰
-- 에이전트의 "생각 과정" 추적 가능
-- 문제 발생 시 어디서 오류났는지 파악 용이
+1. **generate_query_or_respond**:
+   - 입력: "안녕하세요!"
+   - 판단: 검색 불필요
+   - 출력: 직접 응답 ("안녕하세요! 뭘 도와드릴까요?")
+
+2. **END**: 검색 없이 바로 종료
+
+**stream() 메서드의 활용:**
+
+```python
+# 각 노드의 실행 과정을 실시간으로 관찰
+for chunk in agentic_graph.stream({"messages": [{"role": "user", "content": "질문"}]}):
+    for node_name, value in chunk.items():
+        print(f"\n[{node_name}]")
+        if "messages" in value:
+            value["messages"][-1].pretty_print()
+```
+
+**장점:**
+- 에이전트의 의사결정 과정을 단계별로 추적 가능
+- 각 노드에서의 LLM 응답 확인
+- 문제 발생 지점을 명확하게 파악
+- 루프 실행 여부 및 횟수 확인
 
 ---
 
