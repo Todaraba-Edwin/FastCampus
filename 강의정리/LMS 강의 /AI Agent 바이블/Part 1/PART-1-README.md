@@ -10,3 +10,6 @@
 - [CHAP-05: RAG의 한계를 극복하기 위한 Advanced RAG](./Chap-05.md)
 - [CHAP-06: Langchain으로 구현하는 Basic RAG](./Chap-06.md)
 - [CHAP-07: LangGraph로 구현하는 Basic RAG & Agentic RAG](./Chap-07.md)
+- [CHAP-08: AI 에이전트의 개념과 원리](./CHAP-08.md)
+- [CHAP-09: AI 에이전트가 적용된 서비스와 그 원리](./CHAP-09.md)
+        
