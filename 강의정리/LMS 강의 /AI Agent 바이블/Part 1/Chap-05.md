@@ -4,10 +4,10 @@
 
 ## 📑 Index
 - [첫째, Naive RAG의 문제점과 Advanced RAG의 등장](#첫째-naive-rag의-문제점과-advanced-rag의-등장)
-  - [Naive RAG란?](#naive-rag란)
+  - [(1) Naive RAG란?](#1-naive-rag란)
     - [개요](#개요)
     - [상세 설명](#상세-설명)
-  - [Advanced RAG 개요](#advanced-rag-개요)
+  - [(2) Advanced RAG 개요](#2-advanced-rag-개요)
     - [정의](#정의)
     - [핵심 전략](#핵심-전략-4가지)
     - [전략별 상세 설명](#전략별-상세-설명)
@@ -15,7 +15,7 @@
 
 ## 첫째, Naive RAG의 문제점과 Advanced RAG의 등장
 
-### Naive RAG란?
+### (1) Naive RAG란?
 
 #### 개요
 - **정의**: 사용자 질문 → 검색 → 결과 문서 → LLM 답변생성의 단순한 파이프라인
@@ -42,7 +42,7 @@
   - 쿼리 모호성: 사용자 원본 질문의 모호함을 해결 불가
   - 순위 문제: 관련 정보가 무관련 정보에 묻혀 순위 하락
 
-### Advanced RAG 개요
+### (2) Advanced RAG 개요
 
 #### 정의
 - Naive RAG의 한계를 극복하기 위해 전처리, 검색, 재평가 단계를 고도화한 RAG 방식
