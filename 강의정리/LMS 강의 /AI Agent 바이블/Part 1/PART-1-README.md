@@ -7,3 +7,4 @@
 - [CHAP-02: LLM의 한계와 이를 극복하기 위한 최신 아키텍처들](./CHAP-02.md)
 - [CHAP-03: LLM 활용의 다양한 예시와 그 원리](./CHAP-03.md)
 - [CHAP-04: RAG의 원리와 장단점](./CHAP-04.md)
+- [CHAP-05: RAG의 한계를 극복하기 위한 Advanced RAG](./Chap-05.md)
