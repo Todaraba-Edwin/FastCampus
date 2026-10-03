@@ -279,9 +279,61 @@ retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
 #### 📌 학습 목표
 - ChatOpenAI 모델 초기화 및 설정
-- 프롬프트 템플릿 정의 및 RAG 파이프라인 구성
+- LCEL 파이프라인 연산자를 사용한 체인 구성
 
 #### 🎓 스터디 노트 및 질문
+
+> **LCEL 파이프라인 연산자 `|` 이해하기**
+
+```python
+rag_chain = prompt | llm | StrOutputParser()
+```
+
+**`|`는 "할당"이 아니라 "파이프라인 연결" 연산자입니다:**
+
+```
+입력 데이터 {context, question}
+         ↓
+    prompt (템플릿 포맷팅)
+         ↓ | (파이프로 연결)
+      llm (LLM 실행)
+         ↓ | (파이프로 연결)
+StrOutputParser (텍스트 추출)
+         ↓
+   최종 답변 (str)
+```
+
+**각 단계의 역할:**
+
+| 단계 | 입력 | 처리 내용 | 출력 |
+|------|------|---------|------|
+| `prompt` | `{context, question}` 딕셔너리 | ChatPromptTemplate으로 포맷팅 | 완성된 프롬프트 문자열 |
+| `llm` | 프롬프트 문자열 | ChatOpenAI 모델 호출 | AIMessage 객체 |
+| `StrOutputParser` | AIMessage 객체 | `.content` 필드 추출 | 순수 문자열 (str) |
+
+> **StrOutputParser의 정확한 역할**
+
+**LLM의 출력:**
+```python
+response = llm.invoke(prompt)
+# → AIMessage(content="답변 텍스트", response_metadata={...})
+```
+
+**StrOutputParser의 역할:**
+```python
+StrOutputParser().invoke(response)
+# → "답변 텍스트" (문자열로 변환)
+```
+
+**핵심 개념:**
+- ✅ **문자열 추출**: AIMessage 객체 → 순수 str (`.content` 필드)
+- ❌ **벡터 디코딩 아님**: 벡터는 LLM 내부에서 이미 처리됨
+- 🔗 **함수형 파이프라인**: 각 단계의 출력이 다음 단계의 입력이 됨
+
+**주의:**
+- 임베딩 모델이 생성하는 벡터(embedding)와 LLM 출력은 다릅니다
+- 임베딩 벡터 → 벡터 검색(유사도 계산) → 텍스트 추출
+- LLM 출력(텍스트) → StrOutputParser → 순수 문자열
 
 > **RAG 체인의 구조**
 
