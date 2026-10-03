@@ -878,6 +878,112 @@ retriever_tool.args           # {"query": {"type": "string"}}
 
 ---
 
+### 🔥 TypeScript 개발자를 위한 심화 설명
+
+**Q: 함수는 `query: str`인데 왜 `{"query": "..."}` 딕셔너리로 호출?**
+
+```python
+# 함수 정의: 단일 문자열 파라미터
+@tool
+def retrieve(query: str) -> str:  # ← str 타입 (단일값)
+    ...
+
+# 호출: 딕셔너리로 호출
+retriever_tool.run({"query": "deepseek ocr 모델"})  # ← dict 형태 (왜?)
+```
+
+**이유: Tool 객체는 에이전트 호환성을 위해 딕셔너리 형태로만 받음**
+
+```python
+# TypeScript 개발자 관점에서의 비교:
+
+// TypeScript: 함수 직접 호출
+function retrieve(query: string): string {
+  ...
+}
+retrieve("deepseek ocr 모델")  // ✅ 문자열 직접 전달
+
+// Python with @tool: Tool 객체로 변환 후 딕셔너리로만 호출
+@tool
+def retrieve(query: str) -> str:
+  ...
+
+# ❌ 이런 식으로는 불가능:
+retriever_tool("deepseek ocr 모델")
+
+# ✅ 반드시 딕셔너리로:
+retriever_tool.run({"query": "deepseek ocr 모델"})
+```
+
+**왜 이렇게 설계했나?**
+
+```python
+# 이유 1: 에이전트의 Tool Call 형식 통일
+# 에이전트는 항상 이런 형태의 명령을 생성:
+{
+    "tool": "retrieve",
+    "args": {"query": "deepseek ocr 모델"}  # ← 딕셔너리 필수
+}
+
+# 이유 2: 다중 파라미터 지원
+@tool
+def search(query: str, max_results: int) -> str:
+    ...
+
+# 호출할 때는 항상 딕셔너리:
+search_tool.run({
+    "query": "deepseek",
+    "max_results": 5
+})
+```
+
+**내부 동작 흐름:**
+
+```python
+# 1️⃣ 함수 정의: query: str (단일 값 기대)
+def retrieve(query: str) -> str:
+    ...
+
+# 2️⃣ @tool로 변환: 딕셔너리 입력을 받도록 래핑
+class Tool:
+    def run(self, args_dict):
+        # args_dict = {"query": "deepseek ocr 모델"}
+        query_value = args_dict["query"]  # ← 딕셔너리에서 추출
+        return self.func(query_value)     # ← 원래 함수에 전달
+
+# 3️⃣ 사용자는 항상 딕셔너리로 호출:
+retriever_tool.run({"query": "deepseek ocr 모델"})
+```
+
+**TypeScript 타입 관점으로 표현하면:**
+
+```typescript
+// TypeScript에서 같은 개념
+interface ToolArgs {
+  query: string;
+}
+
+class Tool {
+  run(args: ToolArgs): Promise<string> {
+    // args = { query: "deepseek ocr 모델" }
+    return this.func(args.query);
+  }
+}
+
+// 항상 객체로 호출:
+retrieverTool.run({ query: "deepseek ocr 모델" });
+```
+
+**정리:**
+| 항목 | TypeScript | Python (@tool) |
+|------|-----------|-----------------|
+| **함수 정의** | `(query: string)` | `(query: str)` |
+| **직접 호출** | ✅ `fn("text")` | ❌ `fn("text")` |
+| **Tool 호출** | ✅ `tool.run({query: "text"})` | ✅ `tool.run({"query": "text"})` |
+| **이유** | N/A | 에이전트 호환성 |
+
+---
+
 ### (4) 쿼리 생성 또는 응답
 
 #### 📌 학습 목표
