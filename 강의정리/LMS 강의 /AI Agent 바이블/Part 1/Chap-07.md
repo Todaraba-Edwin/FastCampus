@@ -668,43 +668,35 @@ for output in app.stream({"question": question}):
 
 #### 🎓 스터디 노트 및 질문
 
-> **# 문서 분할 및 벡터 스토어 생성 코드 분석 - web_docs는 어디서?**
+> **# 문서 분할 및 벡터 스토어 생성 코드 분석**
 >
 > ```python
-> docs_list = [item for sublist in web_docs for item in sublist]
+> docs_list = [item for sublist in docs for item in sublist]
 > ```
 
-**⚠️ 중요한 질문: web_docs는 어디서 정의되었나?**
+**📍 docs 변수의 출처:**
 
-노트북을 보면:
 ```python
-# 셀 1: PDF 로드
-docs = [pdf_loader.load()]  # ← docs 정의됨
+# 셀 1: PDF 문서 로드 (Agentic RAG용)
+from langchain_community.document_loaders import PyPDFLoader
 
-# 셀 2: 바로 다음에...
-docs_list = [item for sublist in web_docs for item in sublist]  # ← web_docs는?
+pdf_path = "docs/DeepSeek_OCR_paper.pdf"  # ← /docs 폴더의 DeepSeek 논문
+
+pdf_loader = PyPDFLoader(pdf_path)
+docs = [pdf_loader.load()]  # ← docs 변수 정의
+print(f"📄 PDF 문서 로드 완료")
+
+# 셀 2: 문서 분할
+docs_list = [item for sublist in docs for item in sublist]
 ```
 
-**실제 상황:**
-- `web_docs` **변수가 노트북에 명시적으로 선언되지 않음**
-- 이전 셀에서 정의되어야 하는데, 노트북 구조상 보이지 않음
-- **가능한 원인:**
-  1. 웹 크롤링 코드가 있었던 셀이 생략됨
-  2. 이전 LangChain RAG 노트북(CH03.02.01)에서 가져온 변수
-  3. 실습할 때 직접 정의해야 하는 부분
-
-**학습 포인트:**
-실제 실습 시, `web_docs`는 다음과 같이 정의되어야 합니다:
-```python
-# 웹 문서 로딩 (선행 필요)
-from langchain_community.document_loaders import WebBaseLoader
-
-urls = ["https://example.com", "https://another.com"]  # 예시
-web_docs = [WebBaseLoader(url).load() for url in urls]
-
-# 이제 docs_list 생성 가능
-docs_list = [item for sublist in web_docs for item in sublist]
-```
+**실제 의미:**
+- **`docs`**: PyPDFLoader로 로드한 문서 객체
+  - 출처: `/docs/DeepSeek_OCR_paper.pdf` (프로젝트의 docs 폴더)
+  - 형태: 리스트의 리스트 (각 페이지별로 로드됨)
+  
+- **`docs_list`**: 평탄화된 문서 리스트
+  - 모든 페이지를 하나의 리스트로 통합
 
 ---
 
@@ -712,45 +704,55 @@ docs_list = [item for sublist in web_docs for item in sublist]
 
 **구조 분석:**
 ```python
-docs_list = [item for sublist in web_docs for item in sublist]
-            ↑                    ↑                      ↑
+docs_list = [item for sublist in docs for item in sublist]
+            ↑                    ↑                    ↑
         할당(=)          중첩된 for 루프          최종 값
 
 # 풀어서 쓰면:
 docs_list = []
-for sublist in web_docs:           # web_docs는 리스트의 리스트
-    for item in sublist:           # 각 sublist에서 item 추출
-        docs_list.append(item)     # docs_list에 추가
+for sublist in docs:              # docs는 리스트의 리스트
+    for item in sublist:          # 각 페이지에서 item 추출
+        docs_list.append(item)    # docs_list에 추가
 ```
 
 **핵심:**
 - **할당(assignment)**: `docs_list =` (새로운 변수 생성)
   - 빈 리스트가 아님 - 리스트 컴프리헨션으로 채워짐
-  - **선행 조건**: `web_docs`가 먼저 정의되어야 함
+  - **선행 조건**: `docs`가 먼저 PyPDFLoader로 로드되어야 함
   
 - **리스트 컴프리헨션**: `[item for ...]` (리스트를 간결하게 생성)
   
-- **web_docs**: **외부에서 정의된 변수**
-  - **필수 조건**: 실행 전에 정의되어야 함
-  - 정의되지 않으면 `NameError` 발생
+- **docs**: **PyPDFLoader의 결과**
+  - 로드 경로: `/docs/DeepSeek_OCR_paper.pdf`
+  - 형태: 각 페이지별 문서 객체의 리스트
   
 - **sublist**: 루프 내에서만 존재하는 임시 변수
+  - 각 페이지 또는 문서 그룹
   - 루프 바깥에서는 접근 불가
 
 **실제 예시:**
 ```python
-# web_docs가 이런 형태라면:
-web_docs = [[doc1, doc2], [doc3, doc4], [doc5, doc6]]
+# 로드된 docs가 이런 형태라면:
+docs = [
+    [Document(page=0, content="..."), Document(page=1, content="...")],
+    [Document(page=2, content="...")],
+    ...
+]
 
 # 리스트 컴프리헨션 결과:
-docs_list = [doc1, doc2, doc3, doc4, doc5, doc6]
+docs_list = [
+    Document(page=0, content="..."),
+    Document(page=1, content="..."),
+    Document(page=2, content="..."),
+    ...
+]
 # 중첩된 리스트를 평탄화(flatten)하는 것!
 ```
 
-**주의:**
-- 노트북에서 `web_docs` 변수가 정의되지 않았다면 NameError 발생
-- 이는 노트북의 이전 셀에서 정의되어 있어야 함
-- `sublist`는 선언이 아니라 루프 변수 (임시 변수)
+**정리:**
+- `docs`: 실제 PDF 파일 (/docs/DeepSeek_OCR_paper.pdf)에서 로드된 문서
+- `sublist`: 루프 변수 (임시 변수, 선언이 아님)
+- `docs_list`: 최종 평탄화된 문서 리스트
 
 > 여기에 추가 질문들을 기록하세요.
 
