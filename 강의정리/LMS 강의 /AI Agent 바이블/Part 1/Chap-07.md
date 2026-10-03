@@ -668,7 +668,49 @@ for output in app.stream({"question": question}):
 
 #### 🎓 스터디 노트 및 질문
 
-> 여기에 학습하며 생긴 질문들을 기록하세요.
+> **# 문서 분할 및 벡터 스토어 생성 코드 분석**
+>
+> ```python
+> docs_list = [item for sublist in web_docs for item in sublist]
+> ```
+
+**이것은 "리스트 컴프리헨션(List Comprehension)"입니다:**
+
+**구조 분석:**
+```python
+docs_list = [item for sublist in web_docs for item in sublist]
+            ↑                    ↑                      ↑
+        할당(=)          중첩된 for 루프          최종 값
+
+# 풀어서 쓰면:
+docs_list = []
+for sublist in web_docs:           # web_docs는 리스트의 리스트
+    for item in sublist:           # 각 sublist에서 item 추출
+        docs_list.append(item)     # docs_list에 추가
+```
+
+**핵심:**
+- **할당(assignment)**: `docs_list =` (새로운 변수 생성)
+- **리스트 컴프리헨션**: `[item for ...]` (리스트를 간결하게 생성)
+- **web_docs**: 외부에서 정의된 변수 (노트북의 이전 셀에서)
+- **sublist**: 루프 내에서만 존재하는 임시 변수
+
+**실제 예시:**
+```python
+# web_docs가 이런 형태라면:
+web_docs = [[doc1, doc2], [doc3, doc4], [doc5, doc6]]
+
+# 리스트 컴프리헨션 결과:
+docs_list = [doc1, doc2, doc3, doc4, doc5, doc6]
+# 중첩된 리스트를 평탄화(flatten)하는 것!
+```
+
+**주의:**
+- 노트북에서 `web_docs` 변수가 정의되지 않았다면 NameError 발생
+- 이는 노트북의 이전 셀에서 정의되어 있어야 함
+- `sublist`는 선언이 아니라 루프 변수 (임시 변수)
+
+> 여기에 추가 질문들을 기록하세요.
 
 ---
 
