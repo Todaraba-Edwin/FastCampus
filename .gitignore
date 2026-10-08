@@ -1,5 +1,6 @@
 .DS_Store
 /강의자료
+/conda_exam
 
 .env
 /.venv/
